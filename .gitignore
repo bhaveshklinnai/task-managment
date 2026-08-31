@@ -1,16 +1,29 @@
+# Environment files and credentials (keep .env.example, never .env)
 .env
 .env.local
-.DS_Store
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+env/
+ENV/
+
+# Node
+node_modules/
+
+# Build output
+build/
+dist/
+coverage/
+
+# Editors and OS
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
-node_modules/
-venv/
-.venv/
-__pycache__/
-*.py[cod]
-*.egg-info/
-dist/
-build/
+.DS_Store
+Thumbs.db

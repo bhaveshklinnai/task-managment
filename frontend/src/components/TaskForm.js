@@ -1,26 +1,32 @@
 import React, { useState, useEffect } from 'react';
-import '../styles/TaskForm.css';
+import { STATUS_OPTIONS, PRIORITY_OPTIONS } from '../constants';
+import './TaskForm.css';
+
+const BLANK_TASK = {
+  title: '',
+  description: '',
+  status: 'TODO',
+  priority: 'MEDIUM',
+  assignee: ''
+};
 
 function TaskForm({ task, onSubmit, onCancel }) {
-  const [formData, setFormData] = useState({
-    title: '',
-    description: '',
-    status: 'TODO',
-    priority: 'MEDIUM',
-    assignee: ''
-  });
+  const [formData, setFormData] = useState(BLANK_TASK);
   const [errors, setErrors] = useState({});
 
   useEffect(() => {
-    if (task) {
-      setFormData({
-        title: task.title || '',
-        description: task.description || '',
-        status: task.status || 'TODO',
-        priority: task.priority || 'MEDIUM',
-        assignee: task.assignee || ''
-      });
-    }
+    setFormData(
+      task
+        ? {
+            title: task.title || '',
+            description: task.description || '',
+            status: task.status || 'TODO',
+            priority: task.priority || 'MEDIUM',
+            assignee: task.assignee || ''
+          }
+        : BLANK_TASK
+    );
+    setErrors({});
   }, [task]);
 
   const handleChange = (e) => {
@@ -42,9 +48,16 @@ function TaskForm({ task, onSubmit, onCancel }) {
     const newErrors = {};
     if (!formData.title.trim()) {
       newErrors.title = 'Title is required';
+    } else if (formData.title.length > 255) {
+      newErrors.title = 'Title must be 255 characters or less';
     }
     if (!formData.assignee.trim()) {
       newErrors.assignee = 'Assignee is required';
+    } else if (formData.assignee.length > 255) {
+      newErrors.assignee = 'Assignee must be 255 characters or less';
+    }
+    if (formData.description.length > 2000) {
+      newErrors.description = 'Description must be 2000 characters or less';
     }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -53,7 +66,12 @@ function TaskForm({ task, onSubmit, onCancel }) {
   const handleSubmit = (e) => {
     e.preventDefault();
     if (validateForm()) {
-      onSubmit(formData);
+      onSubmit({
+        ...formData,
+        title: formData.title.trim(),
+        description: formData.description.trim(),
+        assignee: formData.assignee.trim()
+      });
     }
   };
 
@@ -85,8 +103,12 @@ function TaskForm({ task, onSubmit, onCancel }) {
               onChange={handleChange}
               placeholder="Enter task description"
               rows="4"
-              className="form-input"
+              maxLength={2000}
+              className={errors.description ? 'form-input error' : 'form-input'}
             />
+            {errors.description && (
+              <span className="error-message">{errors.description}</span>
+            )}
           </div>
 
           <div className="form-row">
@@ -99,9 +121,11 @@ function TaskForm({ task, onSubmit, onCancel }) {
                 onChange={handleChange}
                 className="form-input"
               >
-                <option value="TODO">TODO</option>
-                <option value="IN_PROGRESS">In Progress</option>
-                <option value="DONE">Done</option>
+                {STATUS_OPTIONS.map(option => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -114,9 +138,11 @@ function TaskForm({ task, onSubmit, onCancel }) {
                 onChange={handleChange}
                 className="form-input"
               >
-                <option value="LOW">Low</option>
-                <option value="MEDIUM">Medium</option>
-                <option value="HIGH">High</option>
+                {PRIORITY_OPTIONS.map(option => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
               </select>
             </div>
           </div>

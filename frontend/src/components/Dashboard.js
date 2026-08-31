@@ -1,77 +1,96 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import Statistics from './Statistics';
 import SearchFilter from './SearchFilter';
 import TaskForm from './TaskForm';
 import TaskList from './TaskList';
-import { getTasks, createTask, updateTask, deleteTask } from '../services/taskApi';
-import '../styles/Dashboard.css';
+import { getTasks, getStatistics, createTask, updateTask, deleteTask } from '../services/taskApi';
+import './Dashboard.css';
+
+const EMPTY_FILTERS = { search: '', status: '', priority: '' };
 
 function Dashboard() {
   const [tasks, setTasks] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [message, setMessage] = useState(null);
+
   const [showForm, setShowForm] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
-  const [message, setMessage] = useState(null);
-  const [currentFilters, setCurrentFilters] = useState({
-    search: null,
-    status: null,
-    priority: null
-  });
+
+  const [filters, setFilters] = useState(EMPTY_FILTERS);
+  // The search box updates on every keystroke; this holds the value actually
+  // sent to the API, so typing does not fire a request per character.
+  const [searchTerm, setSearchTerm] = useState('');
+  // Bumped after create/update/delete to trigger a reload.
+  const [reloadCount, setReloadCount] = useState(0);
+
+  const { status, priority } = filters;
+  const isFiltered = Boolean(searchTerm || status || priority);
 
   useEffect(() => {
-    fetchTasks();
+    const timer = setTimeout(() => setSearchTerm(filters.search.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [filters.search]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      setLoading(true);
+      const [taskResult, statsResult] = await Promise.all([
+        getTasks({ search: searchTerm, status, priority }),
+        getStatistics()
+      ]);
+
+      // A slower earlier request must not overwrite newer results.
+      if (cancelled) return;
+
+      if (taskResult.success) {
+        setTasks(taskResult.data);
+        setError(null);
+      } else {
+        setTasks([]);
+        setError(taskResult.error);
+      }
+
+      if (statsResult.success) {
+        setStats(statsResult.data);
+      }
+      setLoading(false);
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [searchTerm, status, priority, reloadCount]);
+
+  const reload = useCallback(() => setReloadCount(count => count + 1), []);
+
+  const showMessage = useCallback((text) => {
+    setMessage(text);
+    setTimeout(() => setMessage(null), 3000);
   }, []);
-
-  const fetchTasks = async () => {
-    setLoading(true);
-    setError(null);
-    const result = await getTasks(
-      currentFilters.search,
-      currentFilters.status,
-      currentFilters.priority
-    );
-    if (result.success) {
-      setTasks(result.data);
-    } else {
-      setError(result.error);
-    }
-    setLoading(false);
-  };
-
-  const handleFilter = async (filters) => {
-    setCurrentFilters(filters);
-    setLoading(true);
-    setError(null);
-    const result = await getTasks(filters.search, filters.status, filters.priority);
-    if (result.success) {
-      setTasks(result.data);
-    } else {
-      setError(result.error);
-    }
-    setLoading(false);
-  };
 
   const handleCreateTask = async (formData) => {
     const result = await createTask(formData);
     if (result.success) {
-      setMessage('Task created successfully!');
       setShowForm(false);
-      fetchTasks();
-      setTimeout(() => setMessage(null), 3000);
+      showMessage('Task created successfully.');
+      reload();
     } else {
       setError(result.error);
     }
   };
 
   const handleUpdateTask = async (formData) => {
-    const result = await updateTask(editingTask._id || editingTask.id, formData);
+    const result = await updateTask(editingTask.id, formData);
     if (result.success) {
-      setMessage('Task updated successfully!');
       setEditingTask(null);
       setShowForm(false);
-      fetchTasks();
-      setTimeout(() => setMessage(null), 3000);
+      showMessage('Task updated successfully.');
+      reload();
     } else {
       setError(result.error);
     }
@@ -80,9 +99,8 @@ function Dashboard() {
   const handleDeleteTask = async (taskId) => {
     const result = await deleteTask(taskId);
     if (result.success) {
-      setMessage('Task deleted successfully!');
-      fetchTasks();
-      setTimeout(() => setMessage(null), 3000);
+      showMessage('Task deleted successfully.');
+      reload();
     } else {
       setError(result.error);
     }
@@ -91,14 +109,6 @@ function Dashboard() {
   const handleEditTask = (task) => {
     setEditingTask(task);
     setShowForm(true);
-  };
-
-  const handleFormSubmit = (formData) => {
-    if (editingTask) {
-      handleUpdateTask(formData);
-    } else {
-      handleCreateTask(formData);
-    }
   };
 
   const handleCloseForm = () => {
@@ -111,7 +121,10 @@ function Dashboard() {
       <div className="dashboard-header">
         <h1>Task Management Dashboard</h1>
         <button
-          onClick={() => setShowForm(true)}
+          onClick={() => {
+            setEditingTask(null);
+            setShowForm(true);
+          }}
           className="btn btn-primary btn-lg"
         >
           + Create New Task
@@ -119,24 +132,35 @@ function Dashboard() {
       </div>
 
       {message && <div className="message success">{message}</div>}
-      {error && <div className="message error">{error}</div>}
+      {error && (
+        <div className="message error">
+          {error}
+          <button onClick={() => setError(null)} className="message-dismiss">
+            &times;
+          </button>
+        </div>
+      )}
 
       {showForm && (
         <TaskForm
           task={editingTask}
-          onSubmit={handleFormSubmit}
+          onSubmit={editingTask ? handleUpdateTask : handleCreateTask}
           onCancel={handleCloseForm}
         />
       )}
 
-      <Statistics />
+      <Statistics stats={stats} />
 
-      <SearchFilter onFilter={handleFilter} />
+      <SearchFilter
+        filters={filters}
+        onChange={setFilters}
+        onReset={() => setFilters(EMPTY_FILTERS)}
+      />
 
       <TaskList
         tasks={tasks}
         loading={loading}
-        isEmpty={tasks.length === 0 && !loading && currentFilters.search === null && currentFilters.status === null && currentFilters.priority === null}
+        isFiltered={isFiltered}
         onEdit={handleEditTask}
         onDelete={handleDeleteTask}
       />

@@ -83,12 +83,9 @@
   color: rgba(255, 255, 255, 0.9);
 }
 
-.error {
-  color: #dc3545;
-  padding: 10px;
-  background-color: #f8d7da;
-  border-radius: 4px;
-  margin-bottom: 15px;
+.stats-loading {
+  color: #666;
+  padding: 20px 0;
 }
 
 @media (max-width: 768px) {

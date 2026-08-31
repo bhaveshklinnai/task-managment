@@ -1,8 +1,8 @@
 import React from 'react';
 import TaskItem from './TaskItem';
-import '../styles/TaskList.css';
+import './TaskList.css';
 
-function TaskList({ tasks, loading, onEdit, onDelete, isEmpty }) {
+function TaskList({ tasks, loading, isFiltered, onEdit, onDelete }) {
   if (loading) {
     return (
       <div className="task-list-container">
@@ -11,12 +11,21 @@ function TaskList({ tasks, loading, onEdit, onDelete, isEmpty }) {
     );
   }
 
-  if (isEmpty || tasks.length === 0) {
+  if (tasks.length === 0) {
     return (
       <div className="task-list-container">
         <div className="empty-state">
-          <p>No tasks found.</p>
-          <p>Create one to get started!</p>
+          {isFiltered ? (
+            <>
+              <p>No tasks match your search and filters.</p>
+              <p>Try a different title or reset the filters.</p>
+            </>
+          ) : (
+            <>
+              <p>No tasks yet.</p>
+              <p>Create one to get started.</p>
+            </>
+          )}
         </div>
       </div>
     );
@@ -27,12 +36,7 @@ function TaskList({ tasks, loading, onEdit, onDelete, isEmpty }) {
       <h2>Tasks ({tasks.length})</h2>
       <div className="task-list">
         {tasks.map(task => (
-          <TaskItem
-            key={task._id || task.id}
-            task={task}
-            onEdit={onEdit}
-            onDelete={onDelete}
-          />
+          <TaskItem key={task.id} task={task} onEdit={onEdit} onDelete={onDelete} />
         ))}
       </div>
     </div>

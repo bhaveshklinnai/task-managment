@@ -1,23 +1,28 @@
 import React from 'react';
-import '../styles/TaskItem.css';
+import './TaskItem.css';
+
+/**
+ * The API sends dates as UTC ISO-8601 strings (e.g. 2026-08-31T11:45:14+00:00),
+ * so the browser converts them to the viewer's local time correctly.
+ */
+const formatDate = (value) => {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
+};
 
 function TaskItem({ task, onEdit, onDelete }) {
-  const formatDate = (dateString) => {
-    const options = { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' };
-    return new Date(dateString).toLocaleDateString('en-US', options);
-  };
-
-  const getPriorityClass = (priority) => {
-    return `priority-${priority.toLowerCase()}`;
-  };
-
-  const getStatusClass = (status) => {
-    return `status-${status.toLowerCase().replace('_', '-')}`;
-  };
-
   const handleDelete = () => {
     if (window.confirm(`Are you sure you want to delete "${task.title}"?`)) {
-      onDelete(task._id || task.id);
+      onDelete(task.id);
     }
   };
 
@@ -26,17 +31,17 @@ function TaskItem({ task, onEdit, onDelete }) {
       <div className="task-header">
         <h3 className="task-title">{task.title}</h3>
         <div className="task-badges">
-          <span className={`badge status ${getStatusClass(task.status)}`}>
+          <span className={`badge status status-${task.status.toLowerCase().replace('_', '-')}`}>
             {task.status.replace('_', ' ')}
           </span>
-          <span className={`badge priority ${getPriorityClass(task.priority)}`}>
+          <span className={`badge priority priority-${task.priority.toLowerCase()}`}>
             {task.priority}
           </span>
         </div>
       </div>
-      
-      <p className="task-description">{task.description}</p>
-      
+
+      {task.description && <p className="task-description">{task.description}</p>}
+
       <div className="task-meta">
         <div className="meta-item">
           <span className="meta-label">Assignee:</span>

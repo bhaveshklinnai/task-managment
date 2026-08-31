@@ -1,186 +1,218 @@
-"""Core business logic for task operations."""
+"""Core application logic.
 
-from typing import Dict, List, Optional, Any, Tuple
-from datetime import datetime
-from bson.objectid import ObjectId
+Every task operation lives here as a plain, reusable Python function. These
+functions do not depend on HTTP, FastAPI or React -- they can be called from a
+script, a test or any other interface. The API layer simply calls them.
+
+Errors are reported by raising the exceptions from app/exceptions.py; the API
+layer maps them to HTTP status codes.
+"""
+
+import re
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+
+from pymongo.errors import PyMongoError
+
 from app.database.mongodb import db
-from app.utils.validation import validate_task_data, validate_status, validate_priority
+from app.exceptions import DatabaseError, TaskNotFoundError, TaskValidationError
+from app.utils.validation import (
+    validate_priority,
+    validate_status,
+    validate_task_data,
+    validate_task_id,
+)
+
+TASK_FIELDS = ("title", "description", "status", "priority", "assignee")
+
+
+def serialize_task(task: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert a MongoDB document into a plain, JSON-friendly dictionary."""
+    return {
+        "id": str(task["_id"]),
+        "title": task.get("title", ""),
+        "description": task.get("description", ""),
+        "status": task.get("status", ""),
+        "priority": task.get("priority", ""),
+        "assignee": task.get("assignee", ""),
+        "created_date": _to_utc_iso(task.get("created_date")),
+        "updated_date": _to_utc_iso(task.get("updated_date")),
+    }
+
+
+def _to_utc_iso(value: Optional[datetime]) -> Optional[str]:
+    """Return a UTC ISO-8601 string so clients can convert to local time.
+
+    Documents written before timezone support was added are stored as naive
+    UTC, so they are labelled as UTC here rather than guessed at.
+    """
+    if not isinstance(value, datetime):
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat()
+
+
+def _build_query(
+    search: Optional[str] = None,
+    status: Optional[str] = None,
+    priority: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Build a MongoDB query from a search term and filter values."""
+    query: Dict[str, Any] = {}
+
+    if search and search.strip():
+        # Escape the term so characters like "(" or "*" are matched literally
+        # instead of being treated as regular expression syntax.
+        query["title"] = {"$regex": re.escape(search.strip()), "$options": "i"}
+
+    if status:
+        if not validate_status(status):
+            raise TaskValidationError(f"Invalid status: {status}")
+        query["status"] = status
+
+    if priority:
+        if not validate_priority(priority):
+            raise TaskValidationError(f"Invalid priority: {priority}")
+        query["priority"] = priority
+
+    return query
 
 
 def create_task(
     title: str,
-    description: str,
-    status: str,
-    priority: str,
-    assignee: str
-) -> Tuple[Optional[str], Optional[str]]:
-    """
-    Create a new task.
-    Returns (task_id, error_message)
-    """
+    assignee: str,
+    description: str = "",
+    status: str = "TODO",
+    priority: str = "MEDIUM",
+) -> Dict[str, Any]:
+    """Create a task and return it."""
     task_data = {
-        "title": title,
-        "description": description,
+        "title": title.strip() if isinstance(title, str) else title,
+        "description": description.strip() if isinstance(description, str) else description,
         "status": status,
         "priority": priority,
-        "assignee": assignee
+        "assignee": assignee.strip() if isinstance(assignee, str) else assignee,
     }
-    
-    is_valid, error_msg = validate_task_data(task_data)
+
+    is_valid, error = validate_task_data(task_data)
     if not is_valid:
-        return None, error_msg
-    
+        raise TaskValidationError(error)
+
     try:
         task_id = db.insert_task(task_data)
-        return task_id, None
-    except Exception as e:
-        return None, f"Failed to create task: {str(e)}"
+        created = db.find_task_by_id(task_id)
+    except PyMongoError as exc:
+        raise DatabaseError(f"Could not create task: {exc}") from exc
+
+    return serialize_task(created)
 
 
 def get_all_tasks() -> List[Dict[str, Any]]:
-    """Retrieve all tasks."""
+    """Return every task."""
     try:
-        tasks = db.find_all_tasks()
-        return tasks
-    except Exception as e:
-        raise Exception(f"Failed to retrieve tasks: {str(e)}")
+        return [serialize_task(task) for task in db.find_tasks()]
+    except PyMongoError as exc:
+        raise DatabaseError(f"Could not retrieve tasks: {exc}") from exc
 
 
-def get_task_by_id(task_id: str) -> Optional[Dict[str, Any]]:
-    """Retrieve a single task by ID."""
+def get_task_by_id(task_id: str) -> Dict[str, Any]:
+    """Return a single task by id."""
+    if not validate_task_id(task_id):
+        raise TaskValidationError(f"Invalid task ID: {task_id}")
+
     try:
-        if not ObjectId.is_valid(task_id):
-            return None
         task = db.find_task_by_id(task_id)
-        return task
-    except Exception:
-        return None
+    except PyMongoError as exc:
+        raise DatabaseError(f"Could not retrieve task: {exc}") from exc
+
+    if not task:
+        raise TaskNotFoundError(f"No task found with ID {task_id}")
+
+    return serialize_task(task)
 
 
-def update_task(task_id: str, update_data: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
-    """
-    Update a task.
-    Returns (success, error_message)
-    """
-    # Validate the update data
-    is_valid, error_msg = validate_task_data(update_data)
+def update_task(task_id: str, update_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Update the supplied fields of a task and return the updated task."""
+    if not validate_task_id(task_id):
+        raise TaskValidationError(f"Invalid task ID: {task_id}")
+
+    # Ignore anything that is not a real task field (id and dates are managed
+    # by the application, not the caller).
+    fields = {key: value for key, value in update_data.items() if key in TASK_FIELDS}
+    for key in ("title", "description", "assignee"):
+        if isinstance(fields.get(key), str):
+            fields[key] = fields[key].strip()
+
+    if not fields:
+        raise TaskValidationError("No valid fields provided to update")
+
+    is_valid, error = validate_task_data(fields, partial=True)
     if not is_valid:
-        return False, error_msg
-    
+        raise TaskValidationError(error)
+
     try:
-        if not ObjectId.is_valid(task_id):
-            return False, "Invalid task ID"
-        
-        # Check if task exists
-        existing_task = db.find_task_by_id(task_id)
-        if not existing_task:
-            return False, "Task not found"
-        
-        # Update the task
-        success = db.update_task(task_id, update_data)
-        if success:
-            return True, None
-        else:
-            return False, "Failed to update task"
-    except Exception as e:
-        return False, f"Error updating task: {str(e)}"
+        updated = db.update_task(task_id, fields)
+        if not updated:
+            raise TaskNotFoundError(f"No task found with ID {task_id}")
+        task = db.find_task_by_id(task_id)
+    except PyMongoError as exc:
+        raise DatabaseError(f"Could not update task: {exc}") from exc
+
+    return serialize_task(task)
 
 
-def delete_task(task_id: str) -> Tuple[bool, Optional[str]]:
-    """
-    Delete a task.
-    Returns (success, error_message)
-    """
+def delete_task(task_id: str) -> None:
+    """Delete a task."""
+    if not validate_task_id(task_id):
+        raise TaskValidationError(f"Invalid task ID: {task_id}")
+
     try:
-        if not ObjectId.is_valid(task_id):
-            return False, "Invalid task ID"
-        
-        # Check if task exists
-        existing_task = db.find_task_by_id(task_id)
-        if not existing_task:
-            return False, "Task not found"
-        
-        # Delete the task
-        success = db.delete_task(task_id)
-        if success:
-            return True, None
-        else:
-            return False, "Failed to delete task"
-    except Exception as e:
-        return False, f"Error deleting task: {str(e)}"
+        deleted = db.delete_task(task_id)
+    except PyMongoError as exc:
+        raise DatabaseError(f"Could not delete task: {exc}") from exc
+
+    if not deleted:
+        raise TaskNotFoundError(f"No task found with ID {task_id}")
 
 
 def search_tasks(search_term: str) -> List[Dict[str, Any]]:
-    """Search tasks by title."""
-    try:
-        if not search_term:
-            return get_all_tasks()
-        tasks = db.find_tasks_by_search(search_term)
-        return tasks
-    except Exception as e:
-        raise Exception(f"Failed to search tasks: {str(e)}")
+    """Search tasks by title (case-insensitive, partial match)."""
+    return search_and_filter(search=search_term)
 
 
 def filter_tasks(
-    status: Optional[str] = None,
-    priority: Optional[str] = None
-) -> Tuple[List[Dict[str, Any]], Optional[str]]:
-    """
-    Filter tasks by status and/or priority.
-    Returns (tasks, error_message)
-    """
-    try:
-        if status and not validate_status(status):
-            return [], f"Invalid status: {status}"
-        
-        if priority and not validate_priority(priority):
-            return [], f"Invalid priority: {priority}"
-        
-        tasks = db.find_tasks_with_filters(status=status, priority=priority)
-        return tasks, None
-    except Exception as e:
-        return [], f"Failed to filter tasks: {str(e)}"
+    status: Optional[str] = None, priority: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """Filter tasks by status and/or priority."""
+    return search_and_filter(status=status, priority=priority)
 
 
 def search_and_filter(
-    search_term: Optional[str] = None,
+    search: Optional[str] = None,
     status: Optional[str] = None,
-    priority: Optional[str] = None
-) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+    priority: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Search by title and filter by status/priority in a single query.
+
+    Any argument may be omitted; omitted arguments are simply not applied.
     """
-    Search and filter tasks combined.
-    Returns (tasks, error_message)
-    """
+    query = _build_query(search=search, status=status, priority=priority)
+
     try:
-        if status and not validate_status(status):
-            return [], f"Invalid status: {status}"
-        
-        if priority and not validate_priority(priority):
-            return [], f"Invalid priority: {priority}"
-        
-        tasks = db.find_tasks_with_filters(
-            search_term=search_term,
-            status=status,
-            priority=priority
-        )
-        return tasks, None
-    except Exception as e:
-        return [], f"Failed to search and filter tasks: {str(e)}"
+        return [serialize_task(task) for task in db.find_tasks(query)]
+    except PyMongoError as exc:
+        raise DatabaseError(f"Could not search tasks: {exc}") from exc
 
 
 def calculate_statistics() -> Dict[str, int]:
-    """Calculate task statistics."""
+    """Count tasks by status, straight from the database."""
     try:
-        total = db.get_total_task_count()
-        todo = db.get_task_count_by_status("TODO")
-        in_progress = db.get_task_count_by_status("IN_PROGRESS")
-        done = db.get_task_count_by_status("DONE")
-        
         return {
-            "total_tasks": total,
-            "todo_count": todo,
-            "in_progress_count": in_progress,
-            "done_count": done
+            "total_tasks": db.count_tasks(),
+            "todo_count": db.count_tasks({"status": "TODO"}),
+            "in_progress_count": db.count_tasks({"status": "IN_PROGRESS"}),
+            "done_count": db.count_tasks({"status": "DONE"}),
         }
-    except Exception as e:
-        raise Exception(f"Failed to calculate statistics: {str(e)}")
+    except PyMongoError as exc:
+        raise DatabaseError(f"Could not calculate statistics: {exc}") from exc

@@ -1,119 +1,66 @@
-"""FastAPI routes for task management."""
+"""REST API routes.
 
-from fastapi import APIRouter, HTTPException, Query
-from typing import Optional, List
-from app.models.task import TaskCreate, TaskUpdate, Task, Statistics
+Route handlers stay deliberately thin: they read the request, call the
+matching core function in app/services/task_service.py, and return the result.
+All business rules live in the service layer. Errors raised by the service are
+translated into HTTP responses by the handlers registered in app/main.py.
+"""
+
+from typing import Optional
+
+from fastapi import APIRouter, Query, Response
+
+from app.models.task import Statistics, Task, TaskCreate, TaskListResponse, TaskUpdate
 from app.services import task_service
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
 
-@router.post("", status_code=201)
-async def create_task(task: TaskCreate):
-    """Create a new task."""
-    task_id, error = task_service.create_task(
-        title=task.title,
-        description=task.description,
-        status=task.status,
-        priority=task.priority,
-        assignee=task.assignee
+@router.post("", response_model=Task, status_code=201)
+async def create_task(payload: TaskCreate):
+    """Create a task."""
+    return task_service.create_task(
+        title=payload.title,
+        assignee=payload.assignee,
+        description=payload.description,
+        status=payload.status,
+        priority=payload.priority,
     )
-    
-    if error:
-        raise HTTPException(status_code=400, detail=error)
-    
-    return {
-        "id": task_id,
-        "message": "Task created successfully"
-    }
 
 
-@router.get("", status_code=200)
+@router.get("", response_model=TaskListResponse)
 async def get_tasks(
-    search: Optional[str] = Query(None),
-    status: Optional[str] = Query(None),
-    priority: Optional[str] = Query(None)
+    search: Optional[str] = Query(None, description="Search by task title"),
+    status: Optional[str] = Query(None, description="TODO, IN_PROGRESS or DONE"),
+    priority: Optional[str] = Query(None, description="LOW, MEDIUM or HIGH"),
 ):
-    """Get all tasks with optional search and filtering."""
-    try:
-        if search or status or priority:
-            tasks, error = task_service.search_and_filter(
-                search_term=search,
-                status=status,
-                priority=priority
-            )
-            if error:
-                raise HTTPException(status_code=400, detail=error)
-        else:
-            tasks = task_service.get_all_tasks()
-        
-        # Convert ObjectId to string for JSON serialization
-        for task in tasks:
-            task['_id'] = str(task['_id'])
-        
-        return {"data": tasks}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    """List tasks, optionally searched by title and filtered by status/priority."""
+    tasks = task_service.search_and_filter(
+        search=search, status=status, priority=priority
+    )
+    return {"count": len(tasks), "data": tasks}
 
 
-@router.get("/stats", status_code=200)
+@router.get("/stats", response_model=Statistics)
 async def get_statistics():
-    """Get task statistics."""
-    try:
-        stats = task_service.calculate_statistics()
-        return stats
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    """Return task counts calculated from the database."""
+    return task_service.calculate_statistics()
 
 
-@router.get("/{task_id}", status_code=200)
+@router.get("/{task_id}", response_model=Task)
 async def get_task(task_id: str):
-    """Get a single task by ID."""
-    try:
-        task = task_service.get_task_by_id(task_id)
-        if not task:
-            raise HTTPException(status_code=404, detail="Task not found")
-        
-        task['_id'] = str(task['_id'])
-        return task
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    """Return a single task by id."""
+    return task_service.get_task_by_id(task_id)
 
 
-@router.put("/{task_id}", status_code=200)
-async def update_task(task_id: str, update_data: TaskUpdate):
-    """Update a task."""
-    try:
-        # Filter out None values
-        update_dict = update_data.model_dump(exclude_unset=True)
-        
-        success, error = task_service.update_task(task_id, update_dict)
-        if not success:
-            if error == "Task not found":
-                raise HTTPException(status_code=404, detail=error)
-            else:
-                raise HTTPException(status_code=400, detail=error)
-        
-        return {"message": "Task updated successfully"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+@router.put("/{task_id}", response_model=Task)
+async def update_task(task_id: str, payload: TaskUpdate):
+    """Update the supplied fields of a task."""
+    return task_service.update_task(task_id, payload.model_dump(exclude_unset=True))
 
 
 @router.delete("/{task_id}", status_code=204)
 async def delete_task(task_id: str):
     """Delete a task."""
-    try:
-        success, error = task_service.delete_task(task_id)
-        if not success:
-            if error == "Task not found":
-                raise HTTPException(status_code=404, detail=error)
-            else:
-                raise HTTPException(status_code=400, detail=error)
-        
-        return None
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    task_service.delete_task(task_id)
+    return Response(status_code=204)

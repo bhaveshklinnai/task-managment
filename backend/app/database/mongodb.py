@@ -1,135 +1,94 @@
+"""MongoDB connection and raw database operations.
+
+This module knows about MongoDB only. It contains no business rules --
+those live in app/services/task_service.py.
+"""
+
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+
+from bson.objectid import ObjectId
 from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError
-from bson.objectid import ObjectId
-from datetime import datetime
-from typing import Optional, List, Dict, Any
+
 from app.config import settings
 
 
 class MongoDB:
-    """MongoDB database connection and CRUD operations."""
-    
+    """Thin wrapper around the `tasks` collection."""
+
     def __init__(self):
         self.client = None
         self.db = None
-        self.tasks_collection = None
+        self.tasks = None
         self.connect()
-    
+
     def connect(self):
-        """Connect to MongoDB."""
+        """Open the connection and verify the server is reachable."""
         try:
+            # tz_aware=True makes PyMongo return timezone-aware UTC datetimes
+            # instead of naive ones, so timestamps stay accurate end to end.
             self.client = MongoClient(
                 settings.MONGODB_URI,
-                serverSelectionTimeoutMS=5000
+                serverSelectionTimeoutMS=5000,
+                tz_aware=True,
+                tzinfo=timezone.utc,
             )
-            # Verify connection
-            self.client.admin.command('ping')
+            self.client.admin.command("ping")
             self.db = self.client[settings.DATABASE_NAME]
-            self.tasks_collection = self.db['tasks']
-            print("✓ Connected to MongoDB successfully")
-        except (ConnectionFailure, ServerSelectionTimeoutError) as e:
-            print(f"✗ Failed to connect to MongoDB: {e}")
+            self.tasks = self.db["tasks"]
+            print(f"Connected to MongoDB (database: {settings.DATABASE_NAME})")
+        except (ConnectionFailure, ServerSelectionTimeoutError) as exc:
+            print(f"Failed to connect to MongoDB: {exc}")
             raise
-    
+
     def close(self):
-        """Close MongoDB connection."""
+        """Close the connection."""
         if self.client:
             self.client.close()
-    
-    # CREATE
+
+    # --- CREATE ---
     def insert_task(self, task_data: Dict[str, Any]) -> str:
-        """Insert a new task into the database."""
-        task_data['created_date'] = datetime.utcnow()
-        task_data['updated_date'] = datetime.utcnow()
-        result = self.tasks_collection.insert_one(task_data)
+        """Insert one task and return its new id as a string."""
+        now = datetime.now(timezone.utc)
+        document = dict(task_data)
+        document["created_date"] = now
+        document["updated_date"] = now
+        result = self.tasks.insert_one(document)
         return str(result.inserted_id)
-    
-    # READ
-    def find_all_tasks(self) -> List[Dict[str, Any]]:
-        """Retrieve all tasks."""
-        tasks = list(self.tasks_collection.find())
-        return tasks
-    
+
+    # --- READ ---
+    def find_tasks(self, query: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        """Find tasks matching a query, newest first."""
+        return list(self.tasks.find(query or {}).sort("created_date", -1))
+
     def find_task_by_id(self, task_id: str) -> Optional[Dict[str, Any]]:
-        """Retrieve a task by ID."""
-        try:
-            task = self.tasks_collection.find_one({"_id": ObjectId(task_id)})
-            return task
-        except Exception:
-            return None
-    
-    def find_tasks_by_search(self, search_term: str) -> List[Dict[str, Any]]:
-        """Search tasks by title (case-insensitive)."""
-        tasks = list(self.tasks_collection.find(
-            {"title": {"$regex": search_term, "$options": "i"}}
-        ))
-        return tasks
-    
-    def find_tasks_by_status(self, status: str) -> List[Dict[str, Any]]:
-        """Filter tasks by status."""
-        tasks = list(self.tasks_collection.find({"status": status}))
-        return tasks
-    
-    def find_tasks_by_priority(self, priority: str) -> List[Dict[str, Any]]:
-        """Filter tasks by priority."""
-        tasks = list(self.tasks_collection.find({"priority": priority}))
-        return tasks
-    
-    def find_tasks_with_filters(
-        self,
-        search_term: Optional[str] = None,
-        status: Optional[str] = None,
-        priority: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
-        """Find tasks with combined search and filters."""
-        query = {}
-        
-        if search_term:
-            query["title"] = {"$regex": search_term, "$options": "i"}
-        
-        if status:
-            query["status"] = status
-        
-        if priority:
-            query["priority"] = priority
-        
-        tasks = list(self.tasks_collection.find(query))
-        return tasks
-    
-    # UPDATE
+        """Find a single task by its id."""
+        return self.tasks.find_one({"_id": ObjectId(task_id)})
+
+    # --- UPDATE ---
     def update_task(self, task_id: str, update_data: Dict[str, Any]) -> bool:
-        """Update a task by ID."""
-        try:
-            update_data['updated_date'] = datetime.utcnow()
-            # Don't allow updating created_date
-            update_data.pop('created_date', None)
-            
-            result = self.tasks_collection.update_one(
-                {"_id": ObjectId(task_id)},
-                {"$set": update_data}
-            )
-            return result.modified_count > 0
-        except Exception:
-            return False
-    
-    # DELETE
+        """Update one task. Returns True if a task with that id existed."""
+        fields = dict(update_data)
+        fields.pop("created_date", None)  # created_date is never modified
+        fields["updated_date"] = datetime.now(timezone.utc)
+
+        result = self.tasks.update_one({"_id": ObjectId(task_id)}, {"$set": fields})
+        # matched_count, not modified_count: re-saving identical values is
+        # still a successful update.
+        return result.matched_count > 0
+
+    # --- DELETE ---
     def delete_task(self, task_id: str) -> bool:
-        """Delete a task by ID."""
-        try:
-            result = self.tasks_collection.delete_one({"_id": ObjectId(task_id)})
-            return result.deleted_count > 0
-        except Exception:
-            return False
-    
-    # STATISTICS
-    def get_task_count_by_status(self, status: str) -> int:
-        """Count tasks by status."""
-        return self.tasks_collection.count_documents({"status": status})
-    
-    def get_total_task_count(self) -> int:
-        """Get total count of all tasks."""
-        return self.tasks_collection.count_documents({})
+        """Delete one task. Returns True if a task was removed."""
+        result = self.tasks.delete_one({"_id": ObjectId(task_id)})
+        return result.deleted_count > 0
+
+    # --- COUNT (used for statistics) ---
+    def count_tasks(self, query: Optional[Dict[str, Any]] = None) -> int:
+        """Count tasks matching a query."""
+        return self.tasks.count_documents(query or {})
 
 
-# Global database instance
+# Single shared database instance
 db = MongoDB()

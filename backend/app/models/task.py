@@ -1,10 +1,13 @@
-from pydantic import BaseModel, Field
+"""Pydantic models describing the shape of API requests and responses."""
+
 from typing import Optional
-from datetime import datetime
+
+from pydantic import BaseModel, Field
 
 
 class TaskCreate(BaseModel):
-    """Model for creating a new task."""
+    """Request body for creating a task."""
+
     title: str = Field(..., min_length=1, max_length=255)
     description: str = Field(default="", max_length=2000)
     status: str = Field(default="TODO")
@@ -13,7 +16,8 @@ class TaskCreate(BaseModel):
 
 
 class TaskUpdate(BaseModel):
-    """Model for updating a task."""
+    """Request body for updating a task. Every field is optional."""
+
     title: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = Field(None, max_length=2000)
     status: Optional[str] = None
@@ -22,22 +26,28 @@ class TaskUpdate(BaseModel):
 
 
 class Task(BaseModel):
-    """Model for a task response."""
-    id: str = Field(alias="_id")
+    """A task as returned by the API."""
+
+    id: str
     title: str
     description: str
     status: str
     priority: str
     assignee: str
-    created_date: datetime
-    updated_date: datetime
+    created_date: Optional[str] = None
+    updated_date: Optional[str] = None
 
-    class Config:
-        populate_by_name = True
+
+class TaskListResponse(BaseModel):
+    """A list of tasks plus the number returned."""
+
+    count: int
+    data: list[Task]
 
 
 class Statistics(BaseModel):
-    """Model for task statistics."""
+    """Task counts calculated from the database."""
+
     total_tasks: int
     todo_count: int
     in_progress_count: int

@@ -1,6 +1,6 @@
 # Task Management Dashboard
 
-A full-stack Task Management Dashboard application built with React, Python FastAPI, and MongoDB.
+A full-stack Task Management Dashboard application for small software development teams built with React, Python FastAPI, and MongoDB.
 
 ## Features
 
@@ -9,7 +9,7 @@ A full-stack Task Management Dashboard application built with React, Python Fast
 - ✅ **View Single Task** - Get detailed information about a specific task
 - ✅ **Update Tasks** - Edit task information while preserving creation date
 - ✅ **Delete Tasks** - Remove tasks with confirmation
-- ✅ **Search Tasks** - Search tasks by title
+- ✅ **Search Tasks** - Search tasks by title (case-insensitive)
 - ✅ **Filter by Status** - Filter tasks by TODO, IN_PROGRESS, or DONE
 - ✅ **Filter by Priority** - Filter tasks by LOW, MEDIUM, or HIGH
 - ✅ **Task Statistics** - View dashboard statistics (Total, TODO, In Progress, Done)
@@ -21,10 +21,11 @@ A full-stack Task Management Dashboard application built with React, Python Fast
 
 | Component | Technology |
 |-----------|-----------|
-| Frontend | React 18 |
+| Frontend | React 18 + Axios |
 | Backend | Python with FastAPI |
 | Database | MongoDB |
 | Communication | REST API |
+| Server | Uvicorn |
 
 ## Project Structure
 
@@ -38,13 +39,13 @@ task-management-dashboard/
 │   │   ├── models/
 │   │   │   └── task.py                # Pydantic models
 │   │   ├── services/
-│   │   │   └── task_service.py        # Core business logic
+│   │   │   └── task_service.py        # Core reusable business logic
 │   │   ├── routes/
-│   │   │   └── tasks.py               # API routes
+│   │   │   └── tasks.py               # FastAPI route handlers
 │   │   ├── database/
-│   │   │   └── mongodb.py             # MongoDB operations
+│   │   │   └── mongodb.py             # MongoDB CRUD operations
 │   │   └── utils/
-│   │       └── validation.py          # Validation functions
+│   │       └── validation.py          # Data validation functions
 │   ├── requirements.txt
 │   ├── .env.example
 │   └── .gitignore

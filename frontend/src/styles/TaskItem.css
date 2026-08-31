@@ -1,0 +1,151 @@
+/* Task Item Styles */
+.task-item {
+  background-color: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 15px;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.task-item:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  border-color: #007bff;
+}
+
+.task-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 15px;
+  gap: 15px;
+}
+
+.task-title {
+  margin: 0;
+  color: #333;
+  font-size: 1.4rem;
+  flex: 1;
+  word-break: break-word;
+}
+
+.task-badges {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.badge {
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badge.status {
+  background-color: #f0f0f0;
+  color: #333;
+}
+
+.status-todo {
+  background-color: #ffeaa7;
+  color: #d63031;
+}
+
+.status-in-progress {
+  background-color: #74b9ff;
+  color: #0984e3;
+}
+
+.status-done {
+  background-color: #55efc4;
+  color: #00b894;
+}
+
+.badge.priority {
+  background-color: #f0f0f0;
+  color: #333;
+}
+
+.priority-low {
+  background-color: #dfe6e9;
+  color: #2d3436;
+}
+
+.priority-medium {
+  background-color: #ffeaa7;
+  color: #d63031;
+}
+
+.priority-high {
+  background-color: #ff7675;
+  color: #d63031;
+}
+
+.task-description {
+  color: #666;
+  font-size: 1rem;
+  line-height: 1.5;
+  margin-bottom: 15px;
+  word-break: break-word;
+}
+
+.task-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 15px;
+  margin-bottom: 15px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.meta-item {
+  display: flex;
+  gap: 8px;
+}
+
+.meta-label {
+  font-weight: 600;
+  color: #333;
+  min-width: 80px;
+}
+
+.meta-value {
+  color: #666;
+  word-break: break-word;
+}
+
+.task-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.btn-sm {
+  padding: 8px 16px !important;
+  font-size: 0.9rem !important;
+}
+
+@media (max-width: 768px) {
+  .task-header {
+    flex-direction: column;
+  }
+
+  .task-badges {
+    justify-content: flex-start;
+  }
+
+  .task-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .task-actions {
+    flex-direction: column;
+  }
+
+  .btn-sm {
+    width: 100%;
+  }
+}
